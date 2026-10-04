@@ -58,6 +58,8 @@
 				for(var/J in legacy_configs)
 					LoadEntries(J)
 				break
+	if (fexists("[directory]/ezdb.txt"))
+		LoadEntries("ezdb.txt")
 	loadmaplist(CONFIG_MAPS_FILE)
 	LoadTopicRateWhitelist()
 	LoadProtectedIDs()
