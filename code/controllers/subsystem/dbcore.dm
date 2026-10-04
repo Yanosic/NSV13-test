@@ -3,7 +3,7 @@ SUBSYSTEM_DEF(dbcore)
 	flags = SS_BACKGROUND
 	wait = 1 MINUTES
 	init_order = INIT_ORDER_DBCORE
-
+	var/db_daemon_started = FALSE
 	var/schema_mismatch = 0
 	var/db_minor = 0
 	var/db_major = 0
@@ -34,6 +34,46 @@ SUBSYSTEM_DEF(dbcore)
 		if(MC_TICK_CHECK)
 			return
 
+/datum/controller/subsystem/dbcore/proc/start_db_daemon()
+	set waitfor = FALSE
+
+	if (db_daemon_started)
+		return
+
+	db_daemon_started = TRUE
+
+	var/daemon = CONFIG_GET(string/db_daemon)
+	if (!daemon)
+		return
+
+	ASSERT(fexists(daemon))
+
+	var/list/result = world.shelleo("echo \"Starting ezdb daemon, do not close this window\" && [daemon]")
+	var/result_code = result[1]
+	if (!result_code || result_code == 1)
+		return
+
+	stack_trace("Failed to start DB daemon: [result_code]\n[result[3]]")
+
+/datum/controller/subsystem/dbcore/proc/stop_db_daemon()
+	set waitfor = FALSE
+
+	if (!db_daemon_started)
+		return
+
+	db_daemon_started = FALSE
+
+	var/daemon = CONFIG_GET(string/db_daemon)
+	if (!daemon)
+		return
+	switch (world.system_type)
+		if (MS_WINDOWS)
+			var/list/result = world.shelleo("Get-Process | ? { $_.Path -eq '[daemon]' } | Stop-Process")
+			ASSERT(result[1])
+		if (UNIX)
+			var/list/result = world.shelleo("kill $(pgrep -f '[daemon]')")
+			ASSERT(result[1])
+
 /datum/controller/subsystem/dbcore/Recover()
 	connection = SSdbcore.connection
 
@@ -48,15 +88,10 @@ SUBSYSTEM_DEF(dbcore)
 		qdel(query_round_shutdown)
 	if(IsConnected())
 		Disconnect()
-
+	stop_db_daemon()
 //nu
 /datum/controller/subsystem/dbcore/can_vv_get(var_name)
 	return var_name != NAMEOF(src, connection) && var_name != NAMEOF(src, active_queries) && ..()
-
-/datum/controller/subsystem/dbcore/vv_edit_var(var_name, var_value)
-	if(var_name == NAMEOF(src, connection))
-		return FALSE
-	return ..()
 
 /datum/controller/subsystem/dbcore/proc/Connect()
 	if(IsConnected())
@@ -68,6 +103,8 @@ SUBSYSTEM_DEF(dbcore)
 	if(!CONFIG_GET(flag/sql_enabled))
 		return FALSE
 
+	start_db_daemon()
+
 	var/user = CONFIG_GET(string/feedback_login)
 	var/pass = CONFIG_GET(string/feedback_password)
 	var/db = CONFIG_GET(string/feedback_database)
@@ -75,7 +112,6 @@ SUBSYSTEM_DEF(dbcore)
 	var/port = CONFIG_GET(number/port)
 	var/timeout = max(CONFIG_GET(number/async_query_timeout), CONFIG_GET(number/blocking_query_timeout))
 	var/thread_limit = CONFIG_GET(number/bsql_thread_limit)
-
 	var/result = json_decode(rustg_sql_connect_pool(json_encode(list(
 		"host" = address,
 		"port" = port,

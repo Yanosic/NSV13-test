@@ -190,3 +190,7 @@ Temporary Items
 !/tools/build
 
 
+
+# ezdb
+/db/
+/config/ezdb.txt
